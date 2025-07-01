@@ -1,108 +1,91 @@
-const hazmatRules = {
-  Class_3: {
-    restrictedTo: 'surface',
-    rigidPackaging: true,
-    maxPerInner: '1 pint',
-    notes: 'Use Class 3 label and Surface Only marking',
-  },
-  Class_4: {
-    restrictedTo: 'surface',
-    rigidPackaging: true,
-    notes: 'Use Class 4 label and limited quantity marking',
-  },
-  Class_5: {
-    restrictedTo: 'surface',
-    rigidPackaging: true,
-    notes: 'Use Class 5.1/5.2 label',
-  },
-  Class_6: {
-    restrictedTo: 'any',
-    rigidPackaging: true,
-    notes: 'Use Class 6.1 label',
-  },
-  Class_8: {
-    restrictedTo: 'any',
-    rigidPackaging: true,
-    notes: 'Use Class 8 label',
-  },
-  Class_9: {
-    restrictedTo: 'any',
-    rigidPackaging: true,
-    notes: 'Limited Quantity rules. Use ID8000 marking for consumer commodity',
-  },
-};
-
+// ===== BACKEND: Express API (index.js) =====
 const express = require('express');
 const cors = require('cors');
-const app = express();
-const PORT = process.env.PORT || 3000;
 
+const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.post('/recommend-packaging', (req, res) => {
-  const { length, width, height, quantity, fragility } = req.body;
+const standardPackages = [
+  { type: 'Padded Mailer', maxVolume: 100, maxWeight: 1, dimensions: '6x9' },
+  { type: 'Poly Mailer', maxVolume: 300, maxWeight: 3, dimensions: '9x12' },
+  { type: 'Single-Wall Carton', maxVolume: 1000, maxWeight: 10, dimensions: '12x9x4' },
+  { type: 'Double-Wall Carton', maxVolume: 3000, maxWeight: 30, dimensions: '16x12x12' },
+  { type: 'Oversize Carton', maxVolume: 6000, maxWeight: 70, dimensions: '24x18x18' }
+];
 
-  const volumePerItem = length * width * height;
-  const totalVolume = volumePerItem * quantity;
+const hazmatRules = {
+  'Class 3': 'Flammable liquids must use leak-proof secondary containment and strong outer fiberboard box.',
+  'Class 8': 'Corrosives require chemically resistant inner packaging and double-wall cartons.',
+  'ORM-D': 'ORM-D items require durable outer packaging with clear ORMD labeling.',
+  // Add more USPS-compliant rules as needed
+};
 
-  let material;
-  if (fragility === 'high') {
-    material = 'Double Wall Carton or Padded Mailer';
-  } else if (fragility === 'medium') {
-    material = 'Single Wall Carton or Poly Mailer';
+app.post('/recommend', (req, res) => {
+  const { length, width, height, weight, quantity, hazmat, hazmatClass } = req.body;
+  const l = parseFloat(length);
+  const w = parseFloat(width);
+  const h = parseFloat(height);
+  const wt = parseFloat(weight);
+  const qty = parseInt(quantity);
+
+  if (isNaN(l) || isNaN(w) || isNaN(h) || isNaN(wt) || isNaN(qty)) {
+    return res.status(400).json({ error: 'Invalid inputs' });
+  }
+
+  const totalVolume = l * w * h * qty;
+  const totalWeight = wt * qty;
+
+  if (hazmat && hazmatClass) {
+    const hazmatNote = hazmatRules[hazmatClass] || `Handle ${hazmatClass} using USPS hazmat guidelines.`;
+    return res.json({
+      recommendation: `Hazmat Packaging Required: ${hazmatNote}`
+    });
+  }
+
+  const matched = standardPackages.find(pkg => {
+    return totalVolume <= pkg.maxVolume && totalWeight <= pkg.maxWeight;
+  });
+
+  if (matched) {
+    res.json({
+      recommendation: `Recommended: ${matched.type} (${matched.dimensions})`
+    });
   } else {
-    material = totalVolume < 300 ? 'Poly Mailer' : 'Single Wall Carton';
+    res.json({
+      recommendation: 'Use a custom heavy-duty carton or consult fulfillment specialist.'
+    });
   }
-
-  const standardBoxes = [
-    { name: '6x6x6', length: 6, width: 6, height: 6 },
-    { name: '10x8x4', length: 10, width: 8, height: 4 },
-    { name: '12x12x8', length: 12, width: 12, height: 8 },
-    { name: '14x10x10', length: 14, width: 10, height: 10 }
-  ];
-
-  function fitsBox(box) {
-    const boxVolume = box.length * box.width * box.height;
-    return (
-      box.length >= length &&
-      box.width >= width &&
-      box.height >= height &&
-      boxVolume >= totalVolume
-    );
-  }
-
-  const fittingBoxes = standardBoxes.filter(fitsBox);
-  const sizeRecommendation =
-    fittingBoxes.length > 0
-      ? fittingBoxes[0]
-      : {
-          name: 'Custom',
-          dimensions: {
-            length: length * quantity,
-            width,
-            height
-          }
-        };
-
-res.json({
-  materialRecommendation: material,
-  sizeRecommendation,
-  hazmatNotes: hazmatNotes || null,
 });
 
-if (req.body.hazmat === 'yes' && hazmatRules[req.body.hazmatClass]) {
-  const hazmat = hazmatRules[req.body.hazmatClass];
-  // Force rigid packaging
-  if (material.includes('Mailer')) {
-    material = 'Double Wall Carton (Hazmat - Rigid Required)';
-  } else {
-    material += ' (Hazmat Compliant)';
-  }
-  // Optionally append hazmat notes to the response
-  hazmatNotes = hazmat.notes;
-}
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`API running on port ${PORT}`));
 
-app.listen(PORT, () => {
-  console.log(`Packaging API listening on port ${PORT}`);
-});
+
+// ===== FRONTEND: React (App.jsx submit handler only) =====
+const handleSubmit = async (e) => {
+  e.preventDefault();
+
+  const payload = {
+    length,
+    width,
+    height,
+    weight,
+    quantity,
+    hazmat: isHazmat,
+    hazmatClass,
+  };
+
+  try {
+    const res = await fetch('https://fosdick-packaging-api.onrender.com/recommend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    setRecommendation(data.recommendation);
+  } catch (err) {
+    setRecommendation('Error fetching recommendation.');
+  }
+};
