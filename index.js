@@ -1,3 +1,37 @@
+const hazmatRules = {
+  Class_3: {
+    restrictedTo: 'surface',
+    rigidPackaging: true,
+    maxPerInner: '1 pint',
+    notes: 'Use Class 3 label and Surface Only marking',
+  },
+  Class_4: {
+    restrictedTo: 'surface',
+    rigidPackaging: true,
+    notes: 'Use Class 4 label and limited quantity marking',
+  },
+  Class_5: {
+    restrictedTo: 'surface',
+    rigidPackaging: true,
+    notes: 'Use Class 5.1/5.2 label',
+  },
+  Class_6: {
+    restrictedTo: 'any',
+    rigidPackaging: true,
+    notes: 'Use Class 6.1 label',
+  },
+  Class_8: {
+    restrictedTo: 'any',
+    rigidPackaging: true,
+    notes: 'Use Class 8 label',
+  },
+  Class_9: {
+    restrictedTo: 'any',
+    rigidPackaging: true,
+    notes: 'Limited Quantity rules. Use ID8000 marking for consumer commodity',
+  },
+};
+
 const express = require('express');
 const cors = require('cors');
 const app = express();
@@ -51,11 +85,23 @@ app.post('/recommend-packaging', (req, res) => {
           }
         };
 
-  res.json({
-    materialRecommendation: material,
-    sizeRecommendation
-  });
+res.json({
+  materialRecommendation: material,
+  sizeRecommendation,
+  hazmatNotes: hazmatNotes || null,
 });
+
+if (req.body.hazmat === 'yes' && hazmatRules[req.body.hazmatClass]) {
+  const hazmat = hazmatRules[req.body.hazmatClass];
+  // Force rigid packaging
+  if (material.includes('Mailer')) {
+    material = 'Double Wall Carton (Hazmat - Rigid Required)';
+  } else {
+    material += ' (Hazmat Compliant)';
+  }
+  // Optionally append hazmat notes to the response
+  hazmatNotes = hazmat.notes;
+}
 
 app.listen(PORT, () => {
   console.log(`Packaging API listening on port ${PORT}`);
