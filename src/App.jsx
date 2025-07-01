@@ -1,3 +1,4 @@
+// ===== FRONTEND: React App.jsx (Full Component) =====
 import React, { useState } from 'react';
 import './App.css';
 
@@ -27,27 +28,31 @@ export default function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const payload = {
-      length,
-      width,
-      height,
-      weight,
-      quantity,
-      hazmat: isHazmat,
-      hazmatClass,
-    };
+    const l = parseFloat(length);
+    const w = parseFloat(width);
+    const h = parseFloat(height);
+    const wt = parseFloat(weight);
 
-    try {
-      const res = await fetch('https://fosdick-packaging-api.onrender.com/recommend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+    if (isNaN(l) || isNaN(w) || isNaN(h) || isNaN(wt)) {
+      setRecommendation('Please enter valid dimensions and weight.');
+      return;
+    }
 
-      const data = await res.json();
-      setRecommendation(data.recommendation);
-    } catch (err) {
-      setRecommendation('Error fetching recommendation.');
+    const volume = l * w * h;
+
+    // Hazmat takes priority
+    if (isHazmat && hazmatClass) {
+      setRecommendation(`Use a USPS-compliant hazmat box for ${hazmatClass}.`);
+      return;
+    }
+
+    // Otherwise, apply dimensional logic
+    if (volume > 1728 || wt > 10) {
+      setRecommendation('Recommended: Double-wall corrugated box.');
+    } else if (volume < 100 && wt < 1) {
+      setRecommendation('Recommended: Padded mailer or poly mailer.');
+    } else {
+      setRecommendation('Recommended: Standard single-wall carton.');
     }
   };
 
