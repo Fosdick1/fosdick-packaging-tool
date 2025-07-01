@@ -25,6 +25,17 @@ export default function App() {
     'ORM-D: Other Regulated Materials – Domestic'
   ];
 
+  const standardBoxes = [
+    { label: '6x4x4 Remailer', l: 6, w: 4, h: 4 },
+    { label: '8x6x4 Box', l: 8, w: 6, h: 4 },
+    { label: '10x8x6 Box', l: 10, w: 8, h: 6 },
+    { label: '12x10x8 Box', l: 12, w: 10, h: 8 },
+    { label: '14x10x10 Box', l: 14, w: 10, h: 10 },
+    { label: '16x12x10 Box', l: 16, w: 12, h: 10 },
+    { label: '18x14x12 Box', l: 18, w: 14, h: 12 },
+    { label: '20x16x14 Box', l: 20, w: 16, h: 14 }
+  ];
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -32,27 +43,42 @@ export default function App() {
     const w = parseFloat(width);
     const h = parseFloat(height);
     const wt = parseFloat(weight);
+    const q = parseInt(quantity);
 
-    if (isNaN(l) || isNaN(w) || isNaN(h) || isNaN(wt)) {
-      setRecommendation('Please enter valid dimensions and weight.');
+    if (isNaN(l) || isNaN(w) || isNaN(h) || isNaN(wt) || isNaN(q)) {
+      setRecommendation('Please enter valid dimensions, weight, and quantity.');
       return;
     }
 
-    const volume = l * w * h;
+    const totalLength = l * q;
+    const totalWidth = w * q;
+    const totalHeight = h * q;
+    const volume = totalLength * totalWidth * totalHeight;
 
-    // Hazmat takes priority
+    const boxFit = standardBoxes.find(box =>
+      box.l >= totalLength && box.w >= totalWidth && box.h >= totalHeight
+    ) || standardBoxes.find(box =>
+      box.l * box.w * box.h >= volume
+    );
+
     if (isHazmat && hazmatClass) {
-      setRecommendation(`Use a USPS-compliant hazmat box for ${hazmatClass}.`);
+      const hazmatNote = `Use a USPS-compliant hazmat box for ${hazmatClass}.`;
+      if (boxFit) {
+        setRecommendation(`${hazmatNote} Suggested size: ${boxFit.label}`);
+      } else {
+        setRecommendation(`${hazmatNote} No standard box found, consider custom packaging.`);
+      }
       return;
     }
 
-    // Otherwise, apply dimensional logic
-    if (volume > 1728 || wt > 10) {
-      setRecommendation('Recommended: Double-wall corrugated box.');
+    if (!boxFit) {
+      setRecommendation('Item too large for standard box sizes. Consider custom packaging.');
+    } else if (volume > 1728 || wt * q > 10) {
+      setRecommendation(`Recommended: Double-wall corrugated box — Suggested size: ${boxFit.label}`);
     } else if (volume < 100 && wt < 1) {
       setRecommendation('Recommended: Padded mailer or poly mailer.');
     } else {
-      setRecommendation('Recommended: Standard single-wall carton.');
+      setRecommendation(`Recommended: Standard single-wall carton — Suggested size: ${boxFit.label}`);
     }
   };
 
