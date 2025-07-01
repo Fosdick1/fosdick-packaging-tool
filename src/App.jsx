@@ -1,4 +1,3 @@
-// ===== FRONTEND: React App.jsx (Full Component) =====
 import React, { useState } from 'react';
 import './App.css';
 
