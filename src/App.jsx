@@ -51,7 +51,7 @@ export default function App() {
           <input name="height" type="number" placeholder="Avg Item Height" value={form.height} onChange={handleChange} style={{ flex: 1, padding: 8 }} required />
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <input name="weight" type="number" placeholder="Avg Item Weight" value={form.weight} onChange={handleChange} style={{ flex: 1, padding: 8 }} required />
+          <input name="weight" type="number" placeholder="Avg Item Weight (lbs)" value={form.weight} onChange={handleChange} style={{ flex: 1, padding: 8 }} required />
           <input name="quantity" type="number" placeholder="Item Multiplier" value={form.quantity} onChange={handleChange} style={{ flex: 1, padding: 8 }} required />
         </div>
         <div style={{ display: 'grid', gap: 4 }}>
