@@ -31,9 +31,7 @@ export default function App() {
     { label: '10x8x6 Box', l: 10, w: 8, h: 6 },
     { label: '12x10x8 Box', l: 12, w: 10, h: 8 },
     { label: '14x10x10 Box', l: 14, w: 10, h: 10 },
-    { label: '16x12x10 Box', l: 16, w: 12, h: 10 },
-    { label: '18x14x12 Box', l: 18, w: 14, h: 12 },
-    { label: '20x16x14 Box', l: 20, w: 16, h: 14 }
+    { label: '16x12x10 Box', l: 16, w: 12, h: 10 }
   ];
 
   const handleSubmit = async (e) => {
@@ -50,36 +48,37 @@ export default function App() {
       return;
     }
 
-    const totalLength = l * q;
-    const totalWidth = w * q;
-    const totalHeight = h * q;
-    const volume = totalLength * totalWidth * totalHeight;
-
-    const boxFit = standardBoxes.find(box =>
-      box.l >= totalLength && box.w >= totalWidth && box.h >= totalHeight
-    ) || standardBoxes.find(box =>
-      box.l * box.w * box.h >= volume
-    );
+    const totalL = l * q;
+    const totalW = w * q;
+    const totalH = h * q;
+    const volume = l * w * h * q;
 
     if (isHazmat && hazmatClass) {
-      const hazmatNote = `Use a USPS-compliant hazmat box for ${hazmatClass}.`;
-      if (boxFit) {
-        setRecommendation(`${hazmatNote} Suggested size: ${boxFit.label}`);
-      } else {
-        setRecommendation(`${hazmatNote} No standard box found, consider custom packaging.`);
-      }
+      setRecommendation(`Use a USPS-compliant hazmat box for ${hazmatClass}.`);
       return;
     }
 
-    if (!boxFit) {
-      setRecommendation('Item too large for standard box sizes. Consider custom packaging.');
-    } else if (volume > 1728 || wt * q > 10) {
-      setRecommendation(`Recommended: Double-wall corrugated box — Suggested size: ${boxFit.label}`);
+    const fittingBoxes = standardBoxes.filter(box =>
+      box.l >= totalL || box.w >= totalW || box.h >= totalH
+    );
+
+    let suggestions = '';
+    if (volume > 1728 || wt > 10) {
+      suggestions += 'Recommended: Double-wall corrugated box.';
     } else if (volume < 100 && wt < 1) {
-      setRecommendation('Recommended: Padded mailer or poly mailer.');
+      suggestions += 'Recommended: Padded mailer or poly mailer.';
     } else {
-      setRecommendation(`Recommended: Standard single-wall carton — Suggested size: ${boxFit.label}`);
+      suggestions += 'Recommended: Standard single-wall carton.';
     }
+
+    if (fittingBoxes.length > 0) {
+      const boxLabels = fittingBoxes.map(box => box.label).join(', ');
+      suggestions += ` Suggested sizes: ${boxLabels}.`;
+    } else {
+      suggestions += ' No standard box fits exactly; consider custom packaging.';
+    }
+
+    setRecommendation(suggestions);
   };
 
   return (
