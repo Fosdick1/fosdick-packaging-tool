@@ -1,6 +1,7 @@
 // ===== FRONTEND: React App.jsx (Full Component) =====
 import React, { useState } from 'react';
 import './App.css';
+import logo from './logo.png'; // Add your logo to the src directory
 
 export default function App() {
   const [length, setLength] = useState('');
@@ -82,9 +83,13 @@ export default function App() {
   };
 
   return (
-    <div className="app-container font-sans">
-      <h1 className="text-3xl font-extrabold mb-4">Fosdick Packaging Tool</h1>
-      <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
+    <div className="app-container font-sans px-6 py-8">
+      <div className="flex items-center space-x-4 mb-6">
+        <img src={logo} alt="Fosdick Logo" className="h-12" />
+        <h1 className="text-3xl font-extrabold">Fosdick Packaging Tool</h1>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6 max-w-xl">
         <div className="flex space-x-4">
           <input type="text" placeholder="Avg Item Length" className="flex-1 p-2 border rounded" value={length} onChange={(e) => setLength(e.target.value)} />
           <input type="text" placeholder="Avg Item Width" className="flex-1 p-2 border rounded" value={width} onChange={(e) => setWidth(e.target.value)} />
@@ -98,7 +103,7 @@ export default function App() {
 
         <div>
           <label className="block font-semibold mb-1">Special Handling - Hazmat/ORMD?</label>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 mb-2">
             <label>
               <input type="checkbox" checked={isHazmat} onChange={(e) => setIsHazmat(e.target.checked)} className="mr-1" /> Yes
             </label>
@@ -107,7 +112,7 @@ export default function App() {
             </label>
           </div>
           {isHazmat && (
-            <select className="mt-2 w-full p-2 border rounded" value={hazmatClass} onChange={(e) => setHazmatClass(e.target.value)}>
+            <select className="w-full p-2 border rounded" value={hazmatClass} onChange={(e) => setHazmatClass(e.target.value)}>
               <option value="">Select Hazmat/ORMD Class</option>
               {hazmatClasses.map((c, i) => (
                 <option key={i} value={c}>{c}</option>
