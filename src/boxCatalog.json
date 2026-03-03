@@ -1,1 +1,20 @@
-
+{
+  "units": "in",
+  "boxes": [
+    { "id": "REMAILER-6-4-4", "name": "Remailer 6x4x4", "inner": { "l": 6, "w": 4, "h": 4 }, "type": "box", "wall": "single", "vendor": "generic" },
+    { "id": "BOX-8-6-4", "name": "Box 8x6x4", "inner": { "l": 8, "w": 6, "h": 4 }, "type": "box", "wall": "single", "vendor": "generic" },
+    { "id": "BOX-10-8-6", "name": "Box 10x8x6", "inner": { "l": 10, "w": 8, "h": 6 }, "type": "box", "wall": "single", "vendor": "generic" },
+    { "id": "BOX-12-10-8", "name": "Box 12x10x8", "inner": { "l": 12, "w": 10, "h": 8 }, "type": "box", "wall": "single", "vendor": "generic" },
+    { "id": "BOX-12-12-8", "name": "Box 12x12x8", "inner": { "l": 12, "w": 12, "h": 8 }, "type": "box", "wall": "single", "vendor": "generic" },
+    { "id": "BOX-14-10-10", "name": "Box 14x10x10", "inner": { "l": 14, "w": 10, "h": 10 }, "type": "box", "wall": "single", "vendor": "generic" },
+    { "id": "BOX-16-12-10", "name": "Box 16x12x10", "inner": { "l": 16, "w": 12, "h": 10 }, "type": "box", "wall": "single", "vendor": "generic" },
+    { "id": "BOX-18-14-12", "name": "Box 18x14x12", "inner": { "l": 18, "w": 14, "h": 12 }, "type": "box", "wall": "double", "vendor": "generic" },
+    { "id": "BOX-20-16-14", "name": "Box 20x16x14", "inner": { "l": 20, "w": 16, "h": 14 }, "type": "box", "wall": "double", "vendor": "generic" }
+  ],
+  "mailers": [
+    { "id": "POLY-10-13", "name": "Poly Mailer 10x13", "inner": { "l": 13, "w": 10, "h": 1 }, "type": "poly", "vendor": "generic" },
+    { "id": "POLY-12-15", "name": "Poly Mailer 12x15", "inner": { "l": 15, "w": 12, "h": 1 }, "type": "poly", "vendor": "generic" },
+    { "id": "PADDED-6-10", "name": "Padded Mailer 6x10", "inner": { "l": 10, "w": 6, "h": 1.5 }, "type": "padded", "vendor": "generic" },
+    { "id": "PADDED-8-12", "name": "Padded Mailer 8x12", "inner": { "l": 12, "w": 8, "h": 1.5 }, "type": "padded", "vendor": "generic" }
+  ]
+}
