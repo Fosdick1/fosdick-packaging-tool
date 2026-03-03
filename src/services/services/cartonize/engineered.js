@@ -1,17 +1,29 @@
-export function engineeredCarton(packed, pad, rounding = 0.5) {
-  // Perfect fit carton dimensions = packed dims rounded up
-  const roundUp = (x) => Math.ceil(x / rounding) * rounding;
+import { dimWeightLb } from "./scoring";
 
-  const L = roundUp(packed.packedL);
-  const W = roundUp(packed.packedW);
-  const H = roundUp(packed.packedH);
+export function engineeredFit(packed, { isHazmat, hazmatClass, dimFactor }) {
+  const l = packed.l;
+  const w = packed.w;
+  const h = packed.h;
+
+  const volume = l * w * h;
+  const dimWt = dimWeightLb(volume, dimFactor);
+  const billed = Math.max(packed.actualWeightLb, dimWt);
 
   return {
-    name: "Engineered (Perfect Fit) Carton",
-    size: `${L}x${W}x${H}`,
-    inner_l: L,
-    inner_w: W,
-    inner_h: H,
-    notes: `Rounded up to nearest ${rounding}\" with padding included (${pad}\").`,
+    size: `${roundUp(l)}x${roundUp(w)}x${roundUp(h)} (custom)`,
+    inner: { l: round2(l), w: round2(w), h: round2(h) },
+    volumeIn3: round2(volume),
+    dimWeightLb: round2(dimWt),
+    billedWeightLb: round2(billed),
+    notes: isHazmat
+      ? [`Hazmat enabled (${hazmatClass || "unspecified"}): prefer stronger cartons + compliant labeling.`]
+      : []
   };
+}
+
+function roundUp(n) {
+  return Math.ceil(n);
+}
+function round2(n) {
+  return Math.round(n * 100) / 100;
 }
