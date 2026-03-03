@@ -1,53 +1,23 @@
-function permutations3(a, b, c) {
-  return [
-    [a, b, c],
-    [a, c, b],
-    [b, a, c],
-    [b, c, a],
-    [c, a, b],
-    [c, b, a],
-  ];
+export function dimWeightLb(volumeIn3, dimFactor) {
+  const df = Number(dimFactor) || 139;
+  return volumeIn3 / df;
 }
 
-export function fits(packed, pkg) {
-  const L = pkg.inner_l ?? pkg.l;
-  const W = pkg.inner_w ?? pkg.w;
-  const H = pkg.inner_h ?? pkg.h;
-
-  for (const [pl, pw, ph] of permutations3(packed.packedL, packed.packedW, packed.packedH)) {
-    if (L >= pl && W >= pw && H >= ph) return true;
-  }
-  return false;
-}
-
-export function packageVolume(pkg) {
-  const L = pkg.inner_l ?? pkg.l;
-  const W = pkg.inner_w ?? pkg.w;
-  const H = pkg.inner_h ?? pkg.h;
-  return L * W * H;
-}
-
-export function billedWeightBox(pkg, dimFactor, actualTotalWeight) {
-  const L = pkg.inner_l ?? pkg.l;
-  const W = pkg.inner_w ?? pkg.w;
-  const H = pkg.inner_h ?? pkg.h;
-  const dimWeight = (L * W * H) / dimFactor;
-  const billedRaw = Math.max(actualTotalWeight, dimWeight);
+export function scoreOption({ option, packed, dimFactor, billedWeightLb, dimWeightLb, volumeIn3 }) {
   return {
-    dimWeight: Math.round(dimWeight * 1000) / 1000,
-    billedWeight: Math.ceil(billedRaw),
+    id: option.id,
+    name: option.name,
+    kind: option.kind || option.type || "box",
+    wall: option.wall || null,
+    inner: option.inner,
+    volumeIn3,
+    dimWeightLb: round2(dimWeightLb),
+    billedWeightLb: round2(billedWeightLb),
+    actualWeightLb: round2(packed.actualWeightLb),
+    dimFactor
   };
 }
 
-export function billedWeightMailer(actualTotalWeight) {
-  return {
-    dimWeight: null,
-    billedWeight: Math.ceil(actualTotalWeight),
-  };
-}
-
-export function rankByBilledThenVolume(a, b) {
-  const d = a.billedWeight - b.billedWeight;
-  if (d !== 0) return d;
-  return a.packageVol - b.packageVol;
+function round2(n) {
+  return Math.round(n * 100) / 100;
 }
