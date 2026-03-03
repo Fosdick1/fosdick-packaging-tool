@@ -1,91 +1,145 @@
-// ===== BACKEND: Express API (index.js) =====
-const express = require('express');
-const cors = require('cors');
+import { validateInputs } from "./validators";
+import { packItemsShelf3D } from "./packer";
+import { scoreOption, dimWeightLb } from "./scoring";
+import { engineeredFit } from "./engineered";
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+/**
+ * Main cartonization entry point
+ * @param {Object} params
+ * @param {Array}  params.items  [{name,l,w,h,wt,qty}]
+ * @param {number} params.padInches  global padding added around packed config (in)
+ * @param {number} params.dimFactor  DIM divisor (e.g., 139)
+ * @param {Object} params.catalog  boxCatalog.json import
+ * @param {Object} params.hazmat {isHazmat:boolean, hazmatClass:string}
+ */
+export function cartonize({ items, padInches = 1, dimFactor = 139, catalog, hazmat }) {
+  const v = validateInputs({ items, padInches, dimFactor, catalog });
+  if (!v.ok) return v;
 
-const standardPackages = [
-  { type: 'Padded Mailer', maxVolume: 100, maxWeight: 1, dimensions: '6x9' },
-  { type: 'Poly Mailer', maxVolume: 300, maxWeight: 3, dimensions: '9x12' },
-  { type: 'Single-Wall Carton', maxVolume: 1000, maxWeight: 10, dimensions: '12x9x4' },
-  { type: 'Double-Wall Carton', maxVolume: 3000, maxWeight: 30, dimensions: '16x12x12' },
-  { type: 'Oversize Carton', maxVolume: 6000, maxWeight: 70, dimensions: '24x18x18' }
-];
+  const isHazmat = !!hazmat?.isHazmat;
+  const hazmatClass = (hazmat?.hazmatClass || "").trim();
 
-const hazmatRules = {
-  'Class 3': 'Flammable liquids must use leak-proof secondary containment and strong outer fiberboard box.',
-  'Class 8': 'Corrosives require chemically resistant inner packaging and double-wall cartons.',
-  'ORM-D': 'ORM-D items require durable outer packaging with clear ORMD labeling.',
-  // Add more USPS-compliant rules as needed
-};
+  // Pack the configuration into a single "packed" cuboid (heuristic)
+  const packed = packItemsShelf3D(items);
 
-app.post('/recommend', (req, res) => {
-  const { length, width, height, weight, quantity, hazmat, hazmatClass } = req.body;
-  const l = parseFloat(length);
-  const w = parseFloat(width);
-  const h = parseFloat(height);
-  const wt = parseFloat(weight);
-  const qty = parseInt(quantity);
-
-  if (isNaN(l) || isNaN(w) || isNaN(h) || isNaN(wt) || isNaN(qty)) {
-    return res.status(400).json({ error: 'Invalid inputs' });
-  }
-
-  const totalVolume = l * w * h * qty;
-  const totalWeight = wt * qty;
-
-  if (hazmat && hazmatClass) {
-    const hazmatNote = hazmatRules[hazmatClass] || `Handle ${hazmatClass} using USPS hazmat guidelines.`;
-    return res.json({
-      recommendation: `Hazmat Packaging Required: ${hazmatNote}`
-    });
-  }
-
-  const matched = standardPackages.find(pkg => {
-    return totalVolume <= pkg.maxVolume && totalWeight <= pkg.maxWeight;
-  });
-
-  if (matched) {
-    res.json({
-      recommendation: `Recommended: ${matched.type} (${matched.dimensions})`
-    });
-  } else {
-    res.json({
-      recommendation: 'Use a custom heavy-duty carton or consult fulfillment specialist.'
-    });
-  }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`API running on port ${PORT}`));
-
-
-// ===== FRONTEND: React (App.jsx submit handler only) =====
-const handleSubmit = async (e) => {
-  e.preventDefault();
-
-  const payload = {
-    length,
-    width,
-    height,
-    weight,
-    quantity,
-    hazmat: isHazmat,
-    hazmatClass,
+  // Apply global padding around the packed result
+  const packedWithPad = {
+    l: packed.l + 2 * padInches,
+    w: packed.w + 2 * padInches,
+    h: packed.h + 2 * padInches,
+    actualWeightLb: packed.actualWeightLb
   };
 
-  try {
-    const res = await fetch('https://fosdick-packaging-api.onrender.com/recommend', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+  // Engineered (custom) option always exists
+  const engineered = engineeredFit(packedWithPad, { isHazmat, hazmatClass, dimFactor });
 
-    const data = await res.json();
-    setRecommendation(data.recommendation);
-  } catch (err) {
-    setRecommendation('Error fetching recommendation.');
+  // Build stock candidates from catalog
+  const boxes = Array.isArray(catalog?.boxes) ? catalog.boxes : [];
+  const mailers = Array.isArray(catalog?.mailers) ? catalog.mailers : [];
+
+  // Hazmat rule (simple for now): no mailers, boxes only
+  const eligibleMailers = isHazmat ? [] : mailers;
+
+  const candidates = [
+    ...boxes.map((b) => ({ ...b, kind: "box" })),
+    ...eligibleMailers.map((m) => ({ ...m, kind: "mailer" }))
+  ];
+
+  // Filter by true fit (all dimensions) with rotation allowed
+  const fits = candidates
+    .map((opt) => {
+      const inner = opt.inner;
+      const fit = fitsWithRotation(packedWithPad, inner, opt.kind);
+      if (!fit.ok) return null;
+
+      const volumeIn3 = inner.l * inner.w * inner.h;
+      const dimWt = dimWeightLb(volumeIn3, dimFactor);
+      const billed = Math.max(packedWithPad.actualWeightLb, dimWt);
+
+      const scored = scoreOption({
+        option: opt,
+        packed: packedWithPad,
+        dimFactor,
+        billedWeightLb: billed,
+        dimWeightLb: dimWt,
+        volumeIn3
+      });
+
+      return {
+        ...scored,
+        fitOrientation: fit.orientation
+      };
+    })
+    .filter(Boolean);
+
+  // If none fit, return engineered + empty stock list
+  if (fits.length === 0) {
+    return {
+      ok: true,
+      packed: packedWithPad,
+      engineered,
+      bestStock: null,
+      stockOptions: [],
+      notes: stockNotes({ isHazmat, hazmatClass })
+    };
   }
-};
+
+  // Sort by smallest billed weight, then smallest volume (then tie-break by name)
+  fits.sort((a, b) => {
+    if (a.billedWeightLb !== b.billedWeightLb) return a.billedWeightLb - b.billedWeightLb;
+    if (a.volumeIn3 !== b.volumeIn3) return a.volumeIn3 - b.volumeIn3;
+    return (a.name || "").localeCompare(b.name || "");
+  });
+
+  const top = fits.slice(0, 3);
+
+  return {
+    ok: true,
+    packed: packedWithPad,
+    engineered,
+    bestStock: top[0] || null,
+    stockOptions: top,
+    notes: stockNotes({ isHazmat, hazmatClass })
+  };
+}
+
+function stockNotes({ isHazmat, hazmatClass }) {
+  if (!isHazmat) return [];
+  return [
+    `Hazmat enabled (${hazmatClass || "unspecified class"}): mailers excluded; boxes only.`
+  ];
+}
+
+/**
+ * Must fit all dimensions. Rotation allowed.
+ * Mailer rule: packed height must be <= mailer inner height AND "slim" (<= 2 inches) to prefer mailers.
+ */
+function fitsWithRotation(packed, inner, kind) {
+  const perms = permutations([packed.l, packed.w, packed.h]);
+
+  for (const [L, W, H] of perms) {
+    const ok = L <= inner.l && W <= inner.w && H <= inner.h;
+    if (!ok) continue;
+
+    if (kind === "mailer") {
+      // Slim rule (adjust later): if too thick, don't treat as mailer-fit
+      if (H > inner.h) continue;
+      if (H > 2) continue;
+    }
+
+    return { ok: true, orientation: { l: L, w: W, h: H } };
+  }
+
+  return { ok: false };
+}
+
+function permutations([a, b, c]) {
+  return [
+    [a, b, c],
+    [a, c, b],
+    [b, a, c],
+    [b, c, a],
+    [c, a, b],
+    [c, b, a]
+  ];
+}
