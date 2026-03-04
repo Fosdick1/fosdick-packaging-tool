@@ -2,16 +2,6 @@ import React, { useMemo, useState } from "react";
 import "./App.css";
 import boxCatalog from "./boxCatalog.json";
 
-/**
- * Fosdick Packaging Tool (frontend-only cartonization)
- * Multi-SKU support (different dims per item):
- * - “Engineered” packed dims are computed via a conservative heuristic:
- *   Use total volume + max dimension constraints to produce a bounding box that will always fit by volume.
- * - Stock options from boxCatalog.json are filtered by fit-with-rotation.
- * - Best option scoring: smallest billed weight, then smallest container volume.
- * - Hazmat/ORMD: restrict to rigid boxes; add handling notes scaffold.
- */
-
 const HAZMAT_CLASSES = [
   "Class 1: Explosives",
   "Class 2: Gases",
@@ -34,7 +24,7 @@ function roundUpTo(x, step = 0.25) {
   return Math.ceil(x / step) * step;
 }
 
-// Returns all axis-aligned permutations of dims [l,w,h]
+// All axis-aligned permutations of dims [l,w,h]
 function permutations3([a, b, c]) {
   return [
     [a, b, c],
@@ -46,7 +36,7 @@ function permutations3([a, b, c]) {
   ];
 }
 
-// Check if item dims fit in container inner dims with rotation allowed
+// Fit item dims inside container inner dims with rotation allowed
 function fitsWithRotation(itemDims, innerDims) {
   const itemPerms = permutations3(itemDims);
   for (const [il, iw, ih] of itemPerms) {
@@ -63,7 +53,6 @@ function dimWeightLb({ l, w, h, dimFactor }) {
   return (l * w * h) / dimFactor;
 }
 
-// Simple hazmat rule scaffold (NOT full USPS compliance)
 function hazmatRules(hazmatClass) {
   const notes = [];
   const forceRigidBox = true;
@@ -80,53 +69,160 @@ function hazmatRules(hazmatClass) {
 }
 
 /**
- * Multi-SKU “always fits” engineered packing heuristic:
- * - totalVol = sum(itemVol * qty)
- * - maxL,maxW,maxH = max single-item dims across all SKUs
- * - We try 3 base footprint options using the max dims as constraints, then compute required third dim by volume.
- * - Choose the option with smallest resulting bounding volume (tie-breaker: smallest max side).
- *
- * This is conservative (not perfect cartonization), but prevents impossible suggestions and always yields a fit.
+ * Expand multi-SKU items into unit list (each unit has dims l,w,h and wt)
  */
-function engineeredPackedDimsFromVolume({ totalVol, maxL, maxW, maxH }) {
-  const bases = [
-    // base uses two max dimensions; compute third by volume; enforce >= remaining max
-    { baseA: maxL, baseB: maxW, minC: maxH, label: "L×W base" },
-    { baseA: maxL, baseB: maxH, minC: maxW, label: "L×H base" },
-    { baseA: maxW, baseB: maxH, minC: maxL, label: "W×H base" },
-  ];
+function expandUnits(items) {
+  const units = [];
+  for (const it of items) {
+    for (let i = 0; i < it.qty; i++) {
+      units.push({
+        id: `${it.id}__${i}`,
+        sku: it.sku,
+        dims: [it.l, it.w, it.h],
+        wt: it.wt,
+        vol: it.l * it.w * it.h,
+      });
+    }
+  }
+  // Largest-first packing tends to behave better
+  units.sort((a, b) => b.vol - a.vol);
+  return units;
+}
 
+/**
+ * Greedy shelf packer on a fixed base (baseL x baseW):
+ * - Packs units into rows (x direction), rows stack along W (y direction)
+ * - When W filled, starts a new layer (adds layerHeight to totalHeight)
+ * - Each unit can be rotated; we choose an orientation that fits and “best” fills remaining.
+ *
+ * Returns { ok, usedL, usedW, usedH, layers, placements? }
+ */
+function packGreedyShelves(units, baseL, baseW) {
+  if (baseL <= 0 || baseW <= 0) return { ok: false, reason: "Invalid base" };
+
+  let x = 0;             // current x position within row
+  let y = 0;             // current y position within layer
+  let rowDepth = 0;      // max footprint depth (along W) in the current row
+  let layerHeight = 0;   // max item height in the current layer
+  let totalHeight = 0;   // sum of completed layers
+  let layers = 1;
+
+  let usedL = 0;
+  let usedW = 0;
+
+  // For debugging you can store placements; keep off for speed/clean
+  // const placements = [];
+
+  const startNewRow = () => {
+    x = 0;
+    y += rowDepth;
+    rowDepth = 0;
+  };
+
+  const startNewLayer = () => {
+    totalHeight += layerHeight;
+    layers += 1;
+    x = 0;
+    y = 0;
+    rowDepth = 0;
+    layerHeight = 0;
+  };
+
+  for (const u of units) {
+    // Quick reject: if unit cannot fit on base in ANY orientation
+    const perms = permutations3(u.dims);
+
+    // Try to place this unit. We will attempt:
+    // 1) Current row
+    // 2) New row (same layer)
+    // 3) New layer
+    // Each attempt picks best orientation that fits remaining area.
+    let placed = false;
+
+    for (let attempt = 0; attempt < 3 && !placed; attempt++) {
+      if (attempt === 1) {
+        // new row
+        startNewRow();
+      } else if (attempt === 2) {
+        // if new row didn't help, start a new layer
+        // but only if there was something in the current layer
+        if (layerHeight > 0) startNewLayer();
+      }
+
+      const remainingL = baseL - x;
+      const remainingW = baseW - y;
+
+      // Collect all orientations that fit in the remaining rectangle
+      const fits = [];
+      for (const [pl, pw, ph] of perms) {
+        if (pl <= remainingL && pw <= remainingW) {
+          // Score: prefer smallest leftover L, then smallest leftover W, then smallest height
+          const score =
+            (remainingL - pl) * 1000000 +
+            (remainingW - pw) * 1000 +
+            ph;
+          fits.push({ pl, pw, ph, score });
+        }
+      }
+
+      if (fits.length === 0) continue;
+
+      fits.sort((a, b) => a.score - b.score);
+      const best = fits[0];
+
+      // Place it
+      // placements.push({ unit: u.id, x, y, l: best.pl, w: best.pw, h: best.ph, layer: layers });
+
+      x += best.pl;
+      rowDepth = Math.max(rowDepth, best.pw);
+      layerHeight = Math.max(layerHeight, best.ph);
+
+      usedL = Math.max(usedL, x);
+      usedW = Math.max(usedW, y + rowDepth);
+
+      placed = true;
+    }
+
+    if (!placed) {
+      // Even after starting a new layer, could not place (means unit > base in all orientations)
+      return { ok: false, reason: "Unit does not fit base footprint", baseL, baseW };
+    }
+  }
+
+  const usedH = totalHeight + layerHeight;
+
+  return {
+    ok: true,
+    usedL: Math.min(baseL, usedL),
+    usedW: Math.min(baseW, usedW),
+    usedH,
+    layers,
+  };
+}
+
+/**
+ * Choose engineered dims by trying a small candidate set of base footprints.
+ * We pick the smallest resulting volume (L*W*H), tie-breaker: smallest max side.
+ */
+function chooseBestEngineered(units, baseCandidates) {
   let best = null;
 
-  for (const b of bases) {
-    const baseArea = b.baseA * b.baseB;
-    if (baseArea <= 0) continue;
+  for (const c of baseCandidates) {
+    const res = packGreedyShelves(units, c.L, c.W);
+    if (!res.ok) continue;
 
-    const rawC = totalVol / baseArea;
-    const c = Math.max(b.minC, rawC);
-
-    // Build dims; (A,B,C) are the bounding box sides
-    const L = b.baseA;
-    const W = b.baseB;
-    const H = c;
+    const L = c.L;
+    const W = c.W;
+    const H = res.usedH;
 
     const vol = L * W * H;
     const maxSide = Math.max(L, W, H);
 
-    const candidate = { L, W, H, vol, maxSide, label: b.label };
+    const cand = { L, W, H, vol, maxSide, layers: res.layers, label: c.label };
 
-    if (!best) best = candidate;
-    else {
-      // choose smallest volume; tie-breaker smallest max side
-      if (candidate.vol < best.vol) best = candidate;
-      else if (candidate.vol === best.vol && candidate.maxSide < best.maxSide) best = candidate;
-    }
-  }
-
-  // Fallback: cubic-ish using max dims constraints
-  if (!best) {
-    const side = Math.max(maxL, maxW, maxH, Math.cbrt(totalVol));
-    best = { L: side, W: side, H: side, vol: side ** 3, maxSide: side, label: "Cube fallback" };
+    if (!best) best = cand;
+    else if (cand.vol < best.vol) best = cand;
+    else if (cand.vol === best.vol && cand.maxSide < best.maxSide) best = cand;
   }
 
   return best;
@@ -137,7 +233,7 @@ export default function App() {
     { id: crypto?.randomUUID?.() || "item-1", sku: "", l: "", w: "", h: "", wt: "", qty: "1" },
   ]);
 
-  const [padding, setPadding] = useState("0.5"); // inches (per side)
+  const [padding, setPadding] = useState("0.5"); // inches per side
   const [dimFactor, setDimFactor] = useState("139");
 
   const [isHazmat, setIsHazmat] = useState(false);
@@ -192,13 +288,11 @@ export default function App() {
       return;
     }
 
-    // Validate items and compute totals
-    let totalVol = 0;
+    // Validate items
+    const normalizedItems = [];
     let totalActualWt = 0;
 
     let maxL = 0, maxW = 0, maxH = 0;
-
-    const normalizedItems = [];
 
     for (const it of items) {
       const l = toNum(it.l);
@@ -216,15 +310,13 @@ export default function App() {
         return;
       }
 
-      const volEach = l * w * h;
-      totalVol += volEach * qty;
       totalActualWt += wt * qty;
 
       maxL = Math.max(maxL, l);
       maxW = Math.max(maxW, w);
       maxH = Math.max(maxH, h);
 
-      normalizedItems.push({ ...it, l, w, h, wt, qty, volEach });
+      normalizedItems.push({ ...it, l, w, h, wt, qty });
     }
 
     if (normalizedItems.length === 0) {
@@ -245,26 +337,58 @@ export default function App() {
       notes.push(...haz.notes);
     }
 
-    // Compute engineered packed dims (pre-padding), then add padding
-    const engineeredCore = engineeredPackedDimsFromVolume({ totalVol, maxL, maxW, maxH });
+    // Expand units and pack
+    const units = expandUnits(normalizedItems);
 
+    // Candidate base footprints:
+    // 1) A few computed bases near the max dims
+    // 2) A handful of stock box bases (helps produce realistic bases)
+    const computedBases = [
+      { L: roundUpTo(maxL, 0.25), W: roundUpTo(maxW, 0.25), label: "Base = maxL × maxW" },
+      { L: roundUpTo(maxL, 0.25), W: roundUpTo(maxH, 0.25), label: "Base = maxL × maxH" },
+      { L: roundUpTo(maxW, 0.25), W: roundUpTo(maxH, 0.25), label: "Base = maxW × maxH" },
+      // Slightly expanded bases to allow better row packing
+      { L: roundUpTo(maxL * 1.25, 0.25), W: roundUpTo(maxW * 1.25, 0.25), label: "Base = 1.25× maxL/maxW" },
+      { L: roundUpTo(maxL * 1.5, 0.25), W: roundUpTo(maxW, 0.25), label: "Base = 1.5× maxL, maxW" },
+      { L: roundUpTo(maxL, 0.25), W: roundUpTo(maxW * 1.5, 0.25), label: "Base = maxL, 1.5× maxW" },
+    ];
+
+    const stockBoxBases = catalog.boxes
+      .slice()
+      .sort((a, b) => containerVolume(a.inner) - containerVolume(b.inner))
+      .slice(0, 12)
+      .map((b) => ({
+        L: roundUpTo(b.inner.l, 0.25),
+        W: roundUpTo(b.inner.w, 0.25),
+        label: `Base from stock: ${b.name}`,
+      }));
+
+    const baseCandidates = [...computedBases, ...stockBoxBases];
+
+    const engineeredCore = chooseBestEngineered(units, baseCandidates);
+
+    if (!engineeredCore) {
+      setError("Could not find an engineered base footprint that packs all units. Increase catalog sizes or add larger stock boxes.");
+      return;
+    }
+
+    // Apply padding to all dims (both sides)
     const packed = {
-      // Add padding on both sides => +2*pad
       l: roundUpTo(engineeredCore.L + 2 * pad, 0.25),
       w: roundUpTo(engineeredCore.W + 2 * pad, 0.25),
       h: roundUpTo(engineeredCore.H + 2 * pad, 0.25),
       actualWeightLb: roundUpTo(totalActualWt, 0.01),
-      totalVolumeIn3: roundUpTo(totalVol, 1),
-      method: engineeredCore.label,
+      layers: engineeredCore.layers,
+      method: `Greedy shelves (${engineeredCore.label})`,
     };
 
-    notes.unshift(`Packed dims computed using conservative volume heuristic (${engineeredCore.label}).`);
-    notes.push(`Total item volume: ${packed.totalVolumeIn3} in³.`);
-    notes.push(`Max single-item dims constraint: ${maxL}×${maxW}×${maxH} in (used to prevent impossible packs).`);
+    notes.unshift(`Packed dims computed via greedy shelf packing on base footprint, then padding added.`);
+    notes.push(`Method: ${packed.method}`);
+    notes.push(`Layers used: ${packed.layers}`);
     notes.push(`Padding applied: ${pad}" each side (adds ${2 * pad}" per dimension).`);
     notes.push(`DIM factor used: ${df}.`);
+    notes.push(`Max single-item dims constraint (input): ${maxL}×${maxW}×${maxH} in.`);
 
-    // Engineered option billing uses ENGINEERED packed dims
     const engineered = {
       size: `${packed.l}×${packed.w}×${packed.h} (Custom/Engineered)`,
       dimWeightLb: roundUpTo(dimWeightLb({ l: packed.l, w: packed.w, h: packed.h, dimFactor: df }), 0.01),
@@ -272,7 +396,7 @@ export default function App() {
     };
     engineered.billedWeightLb = roundUpTo(Math.max(engineered.dimWeightLb, packed.actualWeightLb), 0.01);
 
-    // STOCK OPTIONS
+    // STOCK OPTIONS (fit packed dims)
     const packedDimsArr = [packed.l, packed.w, packed.h];
     const candidates = [];
 
@@ -327,6 +451,7 @@ export default function App() {
       }
     }
 
+    // Score: smallest billed weight, then smallest volume
     candidates.sort((a, b) => {
       if (a.billedWeightLb !== b.billedWeightLb) return a.billedWeightLb - b.billedWeightLb;
       return a.volumeIn3 - b.volumeIn3;
