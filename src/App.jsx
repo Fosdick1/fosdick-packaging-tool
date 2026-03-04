@@ -51,20 +51,6 @@ function dimWeightLb({ l, w, h, dimFactor }) {
   return (l * w * h) / dimFactor;
 }
 
-function hazmatRules(hazmatClass) {
-  const notes = [];
-  const forceRigidBox = true;
-
-  if (/Class 3|Class 8/.test(hazmatClass))
-    notes.push("Use leakproof primary + sealed polybag + absorbent.");
-
-  notes.push(
-    "Hazmat flagged — restrict to rigid box packaging and follow carrier acceptance rules."
-  );
-
-  return { forceRigidBox, notes };
-}
-
 function expandUnits(items) {
   const units = [];
 
@@ -149,7 +135,6 @@ function chooseBestEngineered(units, baseCandidates) {
 
   for (const c of baseCandidates) {
     const res = packGreedyShelves(units, c.L, c.W);
-
     if (!res.ok) continue;
 
     const L = c.L;
@@ -312,6 +297,15 @@ export default function App() {
     });
   };
 
+  // fixed widths to guarantee no overflow
+  const inputBase = {
+    padding: 8,
+    boxSizing: "border-box",
+  };
+  const wDim = 90;
+  const wWt = 110;
+  const wQty = 90;
+
   return (
     <div style={{ padding: 24, fontFamily: "Open Sans, Arial, sans-serif" }}>
       <h1>Fosdick Packaging Tool</h1>
@@ -327,17 +321,18 @@ export default function App() {
               marginBottom: 12,
               background: "white",
               boxSizing: "border-box",
+              overflow: "hidden",
             }}
           >
             <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
-              <strong>Item {idx + 1}</strong>
+              <strong style={{ minWidth: 56 }}>Item {idx + 1}</strong>
 
               <input
                 type="text"
-                placeholder="SKU"
+                placeholder="SKU / Name"
                 value={it.sku}
                 onChange={(e) => updateItem(it.id, { sku: e.target.value })}
-                style={{ flex: 1, padding: 8 }}
+                style={{ ...inputBase, flex: 1, minWidth: 0 }}
               />
 
               <button type="button" onClick={() => removeItem(it.id)}>
@@ -345,29 +340,30 @@ export default function App() {
               </button>
             </div>
 
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {/* dims row */}
+            <div style={{ display: "flex", gap: 12, flexWrap: "nowrap", alignItems: "center" }}>
               <input
                 type="number"
-                placeholder="Length"
+                placeholder="L"
                 value={it.l}
                 onChange={(e) => updateItem(it.id, { l: e.target.value })}
-                style={{ flex: 1, padding: 8 }}
+                style={{ ...inputBase, width: wDim, flex: "0 0 auto" }}
               />
 
               <input
                 type="number"
-                placeholder="Width"
+                placeholder="W"
                 value={it.w}
                 onChange={(e) => updateItem(it.id, { w: e.target.value })}
-                style={{ flex: 1, padding: 8 }}
+                style={{ ...inputBase, width: wDim, flex: "0 0 auto" }}
               />
 
               <input
                 type="number"
-                placeholder="Height"
+                placeholder="H"
                 value={it.h}
                 onChange={(e) => updateItem(it.id, { h: e.target.value })}
-                style={{ flex: 1, padding: 8 }}
+                style={{ ...inputBase, width: wDim, flex: "0 0 auto" }}
               />
 
               <input
@@ -375,7 +371,7 @@ export default function App() {
                 placeholder="Weight"
                 value={it.wt}
                 onChange={(e) => updateItem(it.id, { wt: e.target.value })}
-                style={{ flex: 1, padding: 8 }}
+                style={{ ...inputBase, width: wWt, flex: "0 0 auto" }}
               />
 
               <input
@@ -383,7 +379,7 @@ export default function App() {
                 placeholder="Qty"
                 value={it.qty}
                 onChange={(e) => updateItem(it.id, { qty: e.target.value })}
-                style={{ width: 90, padding: 8, flexShrink: 0 }}
+                style={{ ...inputBase, width: wQty, flex: "0 0 auto" }}
               />
             </div>
           </div>
@@ -397,12 +393,29 @@ export default function App() {
           <button type="submit">Recommend Packaging</button>
         </div>
 
+        {error && (
+          <div style={{ marginTop: 12, padding: 10, border: "1px solid #f5c2c7", background: "#f8d7da" }}>
+            {error}
+          </div>
+        )}
+
         {output && (
           <div style={{ marginTop: 20 }}>
             <h3>Results</h3>
-            Packed: {output.packed.l} × {output.packed.w} × {output.packed.h}
+            Packed: {output.packed.l} × {output.packed.w} × {output.packed.h} in
             <br />
             Weight: {output.packed.actualWeightLb} lb
+            <br />
+            <br />
+            <strong>Best Stock Options</strong>
+            <ol>
+              {output.stockOptions.map((o) => (
+                <li key={o.id}>
+                  {o.name} — Inner {o.inner.l}×{o.inner.w}×{o.inner.h} — Billed{" "}
+                  {roundUpTo(o.billedWeightLb, 0.01)} lb
+                </li>
+              ))}
+            </ol>
           </div>
         )}
       </form>
